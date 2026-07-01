@@ -1,0 +1,8 @@
+opencv-python-headless
+numpy
+scikit-learn
+scikit-image
+pillow
+joblib
+flask
+flask-cors

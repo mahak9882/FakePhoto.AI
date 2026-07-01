@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spot the Fake Photo — Live Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #0f0f12;
+    color: #e8e6df;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 32px 16px;
+  }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 500;
+    margin-bottom: 4px;
+    color: #f0ede6;
+  }
+
+  .subtitle {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 28px;
+  }
+
+  .card {
+    background: #1a1a20;
+    border: 1px solid #2e2e38;
+    border-radius: 16px;
+    padding: 24px;
+    width: 100%;
+    max-width: 520px;
+    margin-bottom: 20px;
+  }
+
+  .video-wrap {
+    position: relative;
+    width: 100%;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #111;
+    aspect-ratio: 4/3;
+  }
+
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transform: scaleX(-1); /* mirror for selfie feel */
+  }
+
+  canvas { display: none; }
+
+  .scanning-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #5bcffa, transparent);
+    animation: scan 2s ease-in-out infinite;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .scanning-line.active { opacity: 1; }
+
+  @keyframes scan {
+    0%   { top: 0%; }
+    100% { top: 100%; }
+  }
+
+  /* Result overlay on video */
+  .overlay-badge {
+    position: absolute;
+    top: 12px; left: 12px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.3s, background 0.4s, color 0.4s;
+    pointer-events: none;
+  }
+
+  .overlay-badge.visible { opacity: 1; }
+  .overlay-badge.real   { background: rgba(30,180,100,0.85); color: #fff; }
+  .overlay-badge.screen { background: rgba(220,60,60,0.85);  color: #fff; }
+
+  /* Score meter */
+  .meter-wrap {
+    margin-top: 20px;
+  }
+
+  .meter-label-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 6px;
+  }
+
+  .meter-track {
+    width: 100%;
+    height: 10px;
+    background: #2e2e38;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+
+  .meter-fill {
+    height: 100%;
+    border-radius: 5px;
+    width: 0%;
+    transition: width 0.35s ease, background 0.35s ease;
+  }
+
+  /* Big verdict display */
+  .verdict {
+    margin-top: 20px;
+    text-align: center;
+    min-height: 60px;
+  }
+
+  .verdict-label {
+    font-size: 26px;
+    font-weight: 500;
+    transition: color 0.3s;
+    letter-spacing: -0.5px;
+  }
+
+  .verdict-label.real   { color: #4ade80; }
+  .verdict-label.screen { color: #f87171; }
+  .verdict-label.idle   { color: #444; }
+
+  .verdict-score {
+    font-size: 13px;
+    color: #666;
+    margin-top: 4px;
+  }
+
+  /* Buttons */
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  button {
+    flex: 1;
+    padding: 10px 0;
+    border-radius: 8px;
+    border: none;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  button:hover { opacity: 0.85; }
+
+  #btn-start {
+    background: #3b82f6;
+    color: #fff;
+  }
+
+  #btn-snap {
+    background: #2e2e38;
+    color: #e8e6df;
+    border: 1px solid #3e3e4a;
+  }
+
+  /* Status bar */
+  .status {
+    font-size: 12px;
+    color: #555;
+    text-align: center;
+    margin-top: 12px;
+    min-height: 18px;
+  }
+
+  .status.error { color: #f87171; }
+  .status.ok    { color: #4ade80; }
+
+  /* Instructions card */
+  .instructions {
+    font-size: 13px;
+    color: #888;
+    line-height: 1.7;
+  }
+
+  .instructions strong { color: #bbb; font-weight: 500; }
+
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  .dot.real   { background: #4ade80; }
+  .dot.screen { background: #f87171; }
+</style>
+</head>
+<body>
+
+<h1>Spot the Fake Photo</h1>
+<p class="subtitle">Points a camera — decides REAL vs SCREEN in real time</p>
+
+<div class="card">
+  <div class="video-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="scanning-line" id="scan-line"></div>
+    <div class="overlay-badge" id="overlay-badge">—</div>
+  </div>
+
+  <div class="meter-wrap">
+    <div class="meter-label-row">
+      <span><span class="dot real"></span>REAL</span>
+      <span>Screen score</span>
+      <span>SCREEN <span class="dot screen"></span></span>
+    </div>
+    <div class="meter-track">
+      <div class="meter-fill" id="meter"></div>
+    </div>
+  </div>
+
+  <div class="verdict">
+    <div class="verdict-label idle" id="verdict-label">—</div>
+    <div class="verdict-score" id="verdict-score">Point camera at something to start</div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btn-start" onclick="startCamera()">Start camera</button>
+    <button id="btn-snap"  onclick="snapAndPredict()" disabled>Snap &amp; predict</button>
+  </div>
+
+  <div class="status" id="status">Server not checked — make sure server.py is running</div>
+</div>
+
+<div class="card instructions">
+  <strong>How to use</strong><br>
+  1. Run <code>python server.py</code> in your project folder<br>
+  2. Click <em>Start camera</em> — allow camera access<br>
+  3. Point at a <strong>real object</strong> or at a <strong>screen showing a photo</strong><br>
+  4. Click <em>Snap &amp; predict</em> — result appears instantly<br><br>
+  <span class="dot real"></span><strong>Green = REAL photo</strong> &nbsp;·&nbsp;
+  <span class="dot screen"></span><strong>Red = SCREEN recapture</strong><br><br>
+  Auto-predicts every 2 seconds once camera is running.
+</div>
+
+<script>
+const SERVER = "http://localhost:5000";
+let stream = null;
+let autoTimer = null;
+let busy = false;
+
+const video   = document.getElementById("video");
+const canvas  = document.getElementById("canvas");
+const meter   = document.getElementById("meter");
+const verdict = document.getElementById("verdict-label");
+const vscore  = document.getElementById("verdict-score");
+const status  = document.getElementById("status");
+const badge   = document.getElementById("overlay-badge");
+const scanLine= document.getElementById("scan-line");
+const btnSnap = document.getElementById("btn-snap");
+
+async function checkServer() {
+  try {
+    const r = await fetch(SERVER + "/health", { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      setStatus("Server connected ✓", "ok");
+      return true;
+    }
+  } catch {}
+  setStatus("Cannot reach server — run: python server.py", "error");
+  return false;
+}
+
+async function startCamera() {
+  const ok = await checkServer();
+  if (!ok) return;
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } }
+    });
+    video.srcObject = stream;
+    btnSnap.disabled = false;
+    setStatus("Camera ready — auto-predicting every 2s", "ok");
+
+    // Auto-predict loop
+    autoTimer = setInterval(() => { if (!busy) snapAndPredict(true); }, 2000);
+  } catch (e) {
+    setStatus("Camera error: " + e.message, "error");
+  }
+}
+
+async function snapAndPredict(auto = false) {
+  if (!stream || busy) return;
+  busy = true;
+
+  if (!auto) scanLine.classList.add("active");
+
+  // Capture frame
+  const w = video.videoWidth  || 640;
+  const h = video.videoHeight || 480;
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.save();
+  ctx.scale(-1, 1); // undo mirror for actual classification
+  ctx.drawImage(video, -w, 0, w, h);
+  ctx.restore();
+
+  // Convert to JPEG blob
+  const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.88));
+  const form = new FormData();
+  form.append("image", blob, "frame.jpg");
+
+  try {
+    const r = await fetch(SERVER + "/predict", { method: "POST", body: form,
+                          signal: AbortSignal.timeout(8000) });
+    const data = await r.json();
+    showResult(data);
+  } catch (e) {
+    setStatus("Prediction failed — is server.py running?", "error");
+  } finally {
+    busy = false;
+    if (!auto) setTimeout(() => scanLine.classList.remove("active"), 600);
+  }
+}
+
+function showResult(data) {
+  const score = data.score;           // calibrated 0-1
+  const isScreen = data.raw_score >= data.threshold;
+  const pct = Math.round(score * 100);
+
+  // Meter
+  meter.style.width = pct + "%";
+  meter.style.background = isScreen
+    ? `hsl(${4 + (1-score)*30}, 80%, 56%)`
+    : `hsl(${140 - score*60}, 65%, 50%)`;
+
+  // Verdict
+  verdict.textContent  = isScreen ? "SCREEN recapture" : "REAL photo";
+  verdict.className    = "verdict-label " + (isScreen ? "screen" : "real");
+  vscore.textContent   = `Screen score: ${(data.raw_score * 100).toFixed(1)}%  (threshold ${(data.threshold*100).toFixed(0)}%)`;
+
+  // Badge on video
+  badge.textContent  = isScreen ? "📺 SCREEN" : "✓ REAL";
+  badge.className    = "overlay-badge visible " + (isScreen ? "screen" : "real");
+
+  setStatus(`Last prediction: ${data.label}`, isScreen ? "error" : "ok");
+}
+
+function setStatus(msg, cls = "") {
+  status.textContent  = msg;
+  status.className    = "status " + cls;
+}
+
+// Check server on load
+checkServer();
+</script>
+</body>
+</html>
